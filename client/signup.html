@@ -1,0 +1,25 @@
+<title>New Account</title>
+<style>	
+	@font-face {
+	  font-family: 'font';
+	  src: url('/client/font.woff') format('woff'),
+	   url('/client/font.ttf') format('truetype');
+	}  		
+	html * {
+		font-family: font;
+	}
+</style>
+
+<body style="background-color:#859ba9">
+<div id="login" style="position:absolute; z-index:1000; font-size: 32px; left:40%; top:20%">
+
+			Username&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="text" id="username"></input><br>
+			&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+			&nbsp;&nbsp;&nbsp;&nbsp;<button id="signUp" onclick="var socket = io();socket.emit('new',{username:document.getElementById('username').value});socket.on('newResponse',function(data){if (data.accepted) {window.location.href = '/';} else {document.getElementById('error').textContent = data.reason;}});">Add Account</button>
+
+		<center>
+			<pre id="error" style="color: red; font-size: 20px;"></pre>
+		</center>
+	</div>
+	<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
