@@ -1,0 +1,1 @@
+{"x":5,"y":18,"structures":[],"antistructures":[],"particles":[],"serverSessionID":0.7885155995008755}
