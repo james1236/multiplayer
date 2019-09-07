@@ -1,0 +1,829 @@
+<!DOCTYPE HTML>
+<html id="html">
+<head>
+<style>
+	@font-face {
+	  font-family: 'font';
+	  src: url('/client/font.woff') format('woff'),
+	   url('/client/font.ttf') format('truetype');
+	}  		
+	html * {
+		font-family: font;
+	}
+</style>
+<meta name="viewport" content="user-scalable=no, width=device-width,  initial-scale=0.5, minimum-scale=0.5,  maximum-scale=0.5"/>
+<title>Demo</title>
+</head>
+
+<body>
+<canvas id="myCanvas" style="top:0px;left:0px;position: fixed;background-color:#859ba9"></canvas>
+<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+
+<img src="/client/spritesheet.png" id="spritesheet" style="position:fixed;top:-1000px;display:none;"></img>
+
+<script>
+	
+	//Main client side code:
+
+	//Initializing Canvas Identifiers (how we use the canvas with javascript)
+	var canvas = document.getElementById('myCanvas');
+	var context = canvas.getContext('2d');
+
+	//Declaring the socket (used for client-server communication)
+	var socket = io();
+
+	//Key Constants
+	LEFT = 37;
+	A = 65;
+	
+	RIGHT = 39;
+	D = 68;
+	
+	UP = 38;
+	W = 87;
+	
+	DOWN = 40;
+	S = 83;
+	
+	R = 82;
+	E = 69;
+	
+	SPACE = 32;
+	ENTER = 13;
+	SHIFT = 16;
+	CTRL = 17;
+	ALT = 18;
+	
+	F5 = 116;
+	F12 = 123;
+	
+	
+	//Variables
+	var spritesheet=document.getElementById("spritesheet");
+	
+	var players = {};
+	var username = "";
+	var touch = false;
+	var mouseX = 0;
+	var mouseY = 0;
+	var keysPressed = {};
+	
+	var serverSessionID = 0;
+	var leftRight = 0;
+	var upDown = 0;
+	var autoSaveOpacity = 0;
+	var timeout = 0;
+	var tileScale = 48;
+	var s = 25;
+	
+	var cameraX = 0;
+	var cameraY = 0;
+	var colors = ["#3DE646","#3DE646","#3DE847","#3CE245","#3BDF44","#3CE245","#3BE044","#3BE044","#3BE044","#3BE044","#3BE044","#3CE044"];
+	var globalTimer = 0;
+	var structures = [];
+	var antistructures = [];
+	var particles = [];
+	var particlesLength = 0;
+	var clientDelay = 0;
+	var serverDelay = 0;
+	
+	var inventory = {
+		slot:0,
+		slotMax:9,
+	}
+	
+	var textures = {
+		"crate":[0,16,16,16],
+		//"crate":[160,0,64,64],
+		"crateOpen":[16,16,16,16],
+		"wallStone":[48,16,16,16],
+		//"wallStone":[96,0,64,64],
+		"tree":[64,24,16,24],
+		"treeDead":[80,16,16,24],
+		"pickaxe":[48,32,16,16],
+		"axe":[32,32,16,16],
+		"rod":[48,48,16,16],
+		"hoe":[32,48,16,16],
+		"can":[64,48,16,16],
+		"tilled":[16,48,16,16],
+		"tilledWet":[0,48,16,16],
+	}
+
+	function newPlayer(username) {
+		players[username] = {
+			playerX:0,
+			playerY:0,
+			color:"white",
+			keysPressed:{},
+		}
+	}
+
+	//Function to make the canvas fill the window
+	function scaleCanvas() {
+		canvas.width = window.innerWidth; 
+		canvas.height = window.innerHeight;
+
+		canvas.style.width = Math.round(canvas.width)+"px";
+		canvas.style.height = Math.round(canvas.height)+"px";
+	}
+
+	scaleCanvas();
+
+	function drawPlayers() {
+		//For each player in the players array
+		for (var player in players) {
+			if (players[player].active) {
+				
+				//            xScale, xSkew          translateX, Y
+				//context.setTransform(1, 0, -0.1, 1, 0, 0);
+				//                        yScew, yScale
+				//Replace this to a movement checker for all players so it dosen't only work on the client's player
+				
+				
+				//Building
+				if (players[player].keysPressed[SHIFT]) {
+				
+					if (player == username) {
+						context.strokeStyle = "red";
+						context.fillStyle = "red";
+					} else {
+						context.strokeStyle = "gray";
+						context.fillStyle = "gray";
+					}
+					
+					bx = 0;
+					by = 0;
+					
+					if (players[player].keysPressed[LEFT] || players[player].keysPressed[A]) {
+						bx = -1;
+					} else {
+						if (players[player].keysPressed[RIGHT] || players[player].keysPressed[D]) {
+							bx = 1;
+						}
+					}
+					if (players[player].keysPressed[UP] || players[player].keysPressed[W]) {
+						by = -1;
+					} else {
+						if (players[player].keysPressed[DOWN] || players[player].keysPressed[S]) {
+							by = 1;
+						}
+					}
+					
+					if (bx != 0 || by != 0) {
+						context.globalAlpha = 0.15;
+						context.fillRect(tileAlign(players[player].playerX)+cameraX+bx*tileScale, tileAlign(players[player].playerY)+cameraY+by*tileScale,tileScale,tileScale);
+						context.beginPath();
+						context.globalAlpha = 0.3;
+						
+						context.moveTo(tileAlign(players[player].playerX)+cameraX+bx*tileScale, tileAlign(players[player].playerY)+cameraY+by*tileScale);
+						context.lineTo(tileAlign(players[player].playerX)+cameraX+bx*tileScale, tileAlign(players[player].playerY)+cameraY+tileScale+by*tileScale);
+						context.lineTo(tileAlign(players[player].playerX)+cameraX+tileScale+bx*tileScale, tileAlign(players[player].playerY)+cameraY+tileScale+by*tileScale);
+						context.lineTo(tileAlign(players[player].playerX)+cameraX+tileScale+bx*tileScale, tileAlign(players[player].playerY)+cameraY+by*tileScale);
+						context.lineTo(tileAlign(players[player].playerX)+cameraX+bx*tileScale, tileAlign(players[player].playerY)+cameraY+by*tileScale);
+						
+						context.stroke();
+					}
+					context.globalAlpha = 1;
+				}
+				
+				//Player + Skew
+				if (players[player].keysPressed[LEFT] || players[player].keysPressed[A]) {
+					leftRight = -3;
+				} else {
+					if (players[player].keysPressed[RIGHT] || players[player].keysPressed[D]) {
+						leftRight = 3;
+					} else {
+						leftRight = 0;
+					}
+				}
+				if (players[player].keysPressed[UP] || players[player].keysPressed[W]) {
+					upDown = -3;
+				} else {
+					if (players[player].keysPressed[DOWN] || players[player].keysPressed[S]) {
+						upDown = 3;
+					} else {
+						upDown = 0;
+					}
+				}
+				
+				context.strokeStyle = "black";
+				context.fillStyle = players[player].color;
+				context.lineWidth = 2;
+				context.beginPath();
+				
+				//tl
+				context.moveTo(players[player].playerX+leftRight+cameraX-s/2, players[player].playerY+upDown+cameraY-s*2);
+				//tr
+				context.lineTo(players[player].playerX+(s/2)+leftRight+cameraX, players[player].playerY+upDown+cameraY-s*2);
+				//br
+				context.lineTo(players[player].playerX+(s/2)+cameraX, players[player].playerY+s*2+cameraY-s*2);
+				//bl
+				context.lineTo(players[player].playerX+cameraX-s/2, players[player].playerY+s*2+cameraY-s*2);
+				//tl
+				context.lineTo(players[player].playerX+leftRight+cameraX-s/2, players[player].playerY+upDown+cameraY-s*2);
+			
+			
+				context.fill();
+				context.stroke();
+				context.closePath();
+				
+				if (players[player].username != username) {
+					context.font = 24+'px font';
+					context.textAlign = "center";
+				
+					context.fillStyle = "white";
+					context.strokeStyle = "black";
+					
+					context.strokeText(players[player].username, players[player].playerX+cameraX, players[player].playerY-10+cameraY-s*2);
+					context.fillText(players[player].username, players[player].playerX+cameraX, players[player].playerY-10+cameraY-s*2);
+					
+					context.textAlign = "start";
+				}
+				
+				//ALT Alignment
+				if (keysPressed[ALT]) {
+					context.globalAlpha = 0.3;
+					context.beginPath();
+					
+					if (player == username) {
+						context.strokeStyle = "blue";
+					} else {
+						context.strokeStyle = "red";
+					}
+					
+					//Target
+					context.arc(players[player].playerX+cameraX,players[player].playerY+cameraY,5,0,2*Math.PI);
+					context.arc(players[player].playerX+cameraX,players[player].playerY+cameraY,1,0,2*Math.PI);
+					
+					//Crosshair
+					context.moveTo(players[player].playerX+cameraX,canvas.height);
+					context.lineTo(players[player].playerX+cameraX,0);
+					context.moveTo(canvas.width,players[player].playerY+cameraY);
+					context.lineTo(0,players[player].playerY+cameraY);
+					
+					//Grid Pos
+					context.moveTo(tileAlign(players[player].playerX)+cameraX, tileAlign(players[player].playerY)+cameraY);
+					context.lineTo(tileAlign(players[player].playerX)+cameraX, tileAlign(players[player].playerY)+cameraY+tileScale);
+					context.lineTo(tileAlign(players[player].playerX)+cameraX+tileScale, tileAlign(players[player].playerY)+cameraY+tileScale);
+					context.lineTo(tileAlign(players[player].playerX)+cameraX+tileScale, tileAlign(players[player].playerY)+cameraY);
+					context.lineTo(tileAlign(players[player].playerX)+cameraX, tileAlign(players[player].playerY)+cameraY);
+					
+					context.stroke();
+					
+					//Spawn Line
+					if (player == username) {
+						context.beginPath();
+						context.strokeStyle = "yellow";
+						
+						context.moveTo(players[username].playerX+cameraX,players[username].playerY+cameraY);
+						context.lineTo(cameraX,cameraY);
+						context.stroke();
+					}
+					
+					context.globalAlpha = 1;
+				}
+			}
+		}
+	}
+	
+	function drawAutoSave() {
+		if (autoSaveOpacity > 0) {
+			context.fillStyle = "white";
+			context.font = 30+'px font';
+			
+			context.globalAlpha = autoSaveOpacity;
+			context.fillText("Game Saved",15,30);
+			context.globalAlpha = 1;
+			
+			autoSaveOpacity -=0.01;
+		}
+	}
+	
+	function drawTerrain() {
+		for (x = 0; x < canvas.width+tileScale; x+=tileScale) {
+			for (y = 0; y < canvas.height+tileScale; y+=tileScale) {
+				//Generating the tile's properties
+				tile = blackBox(Math.trunc(Math.abs((players[username].playerX)+x)/tileScale),Math.trunc(Math.abs((players[username].playerY)+y)/tileScale));
+				
+				//Grass (movement illusion)
+				context.fillStyle = tile.color;
+				
+				//Adding movement illusion
+				falseMoveX = tileAlign(players[username].playerX) - (players[username].playerX/tileScale)*tileScale;
+				falseMoveY = tileAlign(players[username].playerY) - (players[username].playerY/tileScale)*tileScale;
+				//falseMoveX = 0;
+				//falseMoveY = 0;
+				
+				//Render
+				context.fillRect(x-1+falseMoveX,y-1+falseMoveY,tileScale+2,tileScale+2);
+			}
+		}
+		
+		//Generated Relative Tile Drawing
+		topLeftTileX = (toTilePos(players[username].playerX) - Math.trunc((canvas.width/tileScale)/2));
+		topLeftTileY = (toTilePos(players[username].playerY) - Math.trunc((canvas.height/tileScale)/2));
+		bottomRightTileX = topLeftTileX+canvas.width/tileScale+1;
+		bottomRightTileY = topLeftTileY+canvas.height/tileScale+1;
+		
+		for (x = topLeftTileX; x < bottomRightTileX; x++) {
+			for (y = topLeftTileY; y < bottomRightTileY; y++) {
+				if (x >= 0 && y >= 0) {
+					tile = blackBox(x,y);
+					
+					//Antistructure
+					error = false;
+					for (index = 0; index < antistructures.length; index++) {
+						if (antistructures[index].x == x && antistructures[index].y == y) {
+							error = true;
+							break;
+						}
+					}
+					if (!error) {
+						
+						
+						if (tile.rock) {
+							context.drawImage(spritesheet,0,0,16,16,x*tileScale+cameraX,y*tileScale+cameraY,tileScale,tileScale);
+						}		
+						
+						if (tile.lake) {
+						
+							//Create an animation offest
+							arb = Math.trunc(tile.hash*30);
+							if (tile.hash > 0.5) {
+								arb = -arb;
+							}
+							arb = 0;
+							
+							//Decide on the frame and previous frame ghosting
+							if (globalTimer % 60+arb >= 0 && globalTimer % 60+arb < 10) {
+								animationX = 24;
+								midframeX = 40;
+								midframeOpacity = Math.abs(globalTimer % 60+arb-10)/20;
+							} else {
+								if (globalTimer % 60+arb >= 10 && globalTimer % 60+arb < 20) {
+									animationX = 40;
+									midframeX = 24;
+									midframeOpacity = Math.abs(globalTimer % 60+arb-20)/20;
+								} else {
+									if (globalTimer % 60+arb >= 20 && globalTimer % 60+arb < 30) {
+										animationX = 56;
+										midframeX = 40;
+										midframeOpacity = Math.abs(globalTimer % 60+arb-30)/20;
+									} else {
+										if (globalTimer % 60+arb >= 30 && globalTimer % 60+arb < 40) {
+											animationX = 72;
+											midframeX = 56;
+											midframeOpacity = Math.abs(globalTimer % 60+arb-40)/20;
+										} else {
+											if (globalTimer % 60+arb >= 40 && globalTimer % 60+arb < 50) {
+												animationX = 56;
+												midframeX = 72;
+												midframeOpacity = Math.abs(globalTimer % 60+arb-50)/20;
+											} else {
+												animationX = 40;
+												midframeX = 56;
+												midframeOpacity = Math.abs(globalTimer % 60+arb-60)/20;
+											}
+										}
+									}
+								}
+							}
+							
+							//Drawing Tile
+							context.drawImage(spritesheet,animationX,0,16,16,x*tileScale+cameraX,y*tileScale+cameraY,tileScale,tileScale);
+							
+							//Drawing ghost tile
+							context.globalAlpha = midframeOpacity;
+							context.drawImage(spritesheet,midframeX,0,16,16,x*tileScale+cameraX,y*tileScale+cameraY,tileScale,tileScale);
+							context.globalAlpha = 1;
+						}
+						
+					}
+					
+					if (keysPressed[ALT]) {
+						if (x % 16 == 0) {
+							context.globalAlpha=0.5;
+							context.fillStyle = "white";
+							context.fillRect(x*tileScale+cameraX,y*tileScale+cameraY,5,tileScale);
+							context.globalAlpha=1;
+						}
+						if (y % 16 == 0) {
+							context.globalAlpha=0.5;
+							context.fillStyle = "white";
+							context.fillRect(x*tileScale+cameraX,y*tileScale+cameraY,tileScale,5);
+							context.globalAlpha=1;
+						}
+					}
+				}
+			}
+		}
+		
+		//Particles
+		particlesLength = 0;
+		for (var particle in particles) {
+			for (var subParticle in particles[particle]) {
+				particlesLength++;
+			
+				context.globalAlpha = particles[particle][subParticle].opacity;
+				
+				context.drawImage(spritesheet,particles[particle][subParticle].spritex,particles[particle][subParticle].spritey,particles[particle][subParticle].spriteScale,particles[particle][subParticle].spriteScale,particles[particle][subParticle].x+cameraX-particles[particle][subParticle].scale/2 , particles[particle][subParticle].y+cameraY-particles[particle][subParticle].scale/2 , particles[particle][subParticle].scale , particles[particle][subParticle].scale);	
+				
+				context.globalAlpha = 1;
+			}
+			context.globalAlpha = 1;
+		}
+		
+		//Structures
+		for (var structure in structures) {
+			//on screen
+			if ((structures[structure].x*tileScale+cameraX+tileScale > 0 && structures[structure].x*tileScale+cameraX < canvas.width) && (structures[structure].y*tileScale+cameraY+tileScale > 0 && structures[structure].y*tileScale+cameraY < canvas.height)) {
+			
+				texture = textures[structures[structure].type];
+				
+				//Draw Structure Texture
+				context.drawImage(spritesheet,texture[0],texture[1],texture[2],texture[3],structures[structure].x*tileScale+cameraX,structures[structure].y*tileScale+cameraY,tileScale,tileScale);
+			}
+		}
+		
+		//Barriers
+		for (var player in players) {
+			if (players[player].active) {
+				if (players[player].playerX == 0) {
+					context.globalAlpha = players[player].barrierOpacity;
+					context.drawImage(spritesheet,16,0,8,8,players[player].playerX-tileScale+cameraX,tileAlign(players[player].playerY)+cameraY,tileScale,tileScale);
+					context.globalAlpha = 1;
+				}
+				if (players[player].playerY == 0) {
+					context.globalAlpha = players[player].barrierOpacity;
+					context.drawImage(spritesheet,16,0,8,8,tileAlign(players[player].playerX)+cameraX,players[player].playerY-tileScale+cameraY,tileScale,tileScale);
+					context.globalAlpha = 1;
+				}
+			}
+		}
+	}
+	
+	// Coords -> BlackBox -> Everything about that tile's generation
+	function blackBox(x,y) {
+		//List of features
+		tile = {hash:0,rock:false,color:"",lake:false};
+		
+		//Creating tile's hash
+		//hash = (x + y) * (x + y + 1) / 2 + x + Math.trunc(serverSessionID*100000);
+		//hash = (x*15487243 + y)*1301081 + Math.trunc(serverSessionID*100000)
+	    x = Math.sin(((x + y) * (x + y + 1) / 2 + x + Math.trunc(serverSessionID*100000))+1) * 10000;
+		tile.hash = x - Math.floor(x);
+		
+		//Changing Features depending on probability
+		//Server Syncronus Calculations
+		if (tile.hash < 0.0003) {
+			tile.lake = true;
+		} else {
+			if (tile.hash < 0.02) {
+				tile.rock = true;
+			}
+		}
+		
+		//Client Only Calculations
+		//tile.color = colors[Math.seededRandom(0,colors.length)];
+		tile.color = colors[Math.floor(tile.hash*colors.length)];
+		
+		//Output
+		return tile;
+	}
+	
+	function drawInventory() {
+		//Numkey Inventory Selection
+		for (index = 0; index < inventory.slotMax; index++) {
+			if (keysPressed[49+index]) {
+				inventory.slot = 0+index;
+			}
+		}
+	
+	
+		//Draw
+		x = canvas.width/2-((tileScale*1.15+15)*inventory.slotMax)/2;
+		y = 30;
+		
+		context.strokeStyle = "white";
+		
+		for (index = 0; index < inventory.slotMax; index++) {
+			//Slot
+			context.fillStyle = "lightgray";
+			context.globalAlpha = 0.5;
+			if (index == inventory.slot) {
+				context.globalAlpha = 1;
+				context.fillStyle = "white";
+			}
+			context.drawImage(spritesheet,0,32,16,16,x+(tileScale*1.15+15)*index,y,tileScale*1.15,tileScale*1.15);
+			
+			//Item
+			if (players[username].inventory[index]) {
+				context.drawImage(spritesheet,textures[players[username].inventory[index].type][0],textures[players[username].inventory[index].type][1],16,16,x+(tileScale*1.15+15)*index+(tileScale*0.15)/2,y+(tileScale*0.15)/2,tileScale,tileScale);
+			}
+			
+			//Outline
+			if (index == inventory.slot) {
+				context.globalAlpha = 0.4;
+				context.strokeRect(x+(tileScale*1.15+15)*index,y,tileScale*1.15,tileScale*1.15);
+			}
+		}
+		
+		
+		context.globalAlpha = 1;
+	}
+	
+	function toTilePos(pixel) {
+		return Math.trunc(pixel/tileScale);
+	}
+	
+	function tileAlign(pixel) {
+		return Math.trunc(pixel/tileScale)*tileScale;
+	}
+	
+	function adjustCamera() {
+		cameraX = ((-players[username].playerX)+(toTilePos((canvas.width/2)))*tileScale)-s+tileScale/2;
+		cameraY = ((-players[username].playerY)+(toTilePos((canvas.height/2)))*tileScale)-s*2+tileScale;
+	}
+	
+	function drawInfoText() {
+		context.fillStyle = "white";
+		context.font = 30+'px font';
+		
+		context.textAlign = "right";
+		context.fillText(Math.trunc(toTilePos(players[username].playerX)/16)+"cx   "+Math.trunc(toTilePos(players[username].playerY)/16)+"cy   "+serverDelay+"sd   "+clientDelay+"cd   "+particlesLength+"sp   "+structures.length+"s   "+antistructures.length+"a   "+toTilePos(players[username].playerX)+","+toTilePos(players[username].playerY),canvas.width-10,30);
+		context.textAlign = "start";
+	}
+	
+	socket.on("autosave",function() {
+		autoSaveOpacity = 1;
+	});
+
+	//Whenever a public packet is recived
+	socket.on("publicPacket",function(data) {
+		//Server Session Change Detection
+		if (username != "" && data.serverSessionID != serverSessionID) {
+			username = "";
+			window.location.href = '/';
+		}
+		
+		//Update Player Informaion
+		players = [];
+		userPlayerIndex = -1;
+		for (index = 0; index < data.players.length; index++) {
+			//Create a new player
+			if (data.players[index].username == username) {
+				userPlayerIndex = index;
+			} else {
+				newPlayer(data.players[index].username);
+
+				//Updating Relevant Information about the player (no reference)
+				players[data.players[index].username] = JSON.parse(JSON.stringify(data.players[index]));
+			}
+		}
+		
+		if (userPlayerIndex+1) {
+			//Adding the user's player last so always drawn ontop (no reference)
+			newPlayer(username);
+			players[username] = JSON.parse(JSON.stringify(data.players[userPlayerIndex]));
+		}
+
+		serverDelay = data.serverDelay;
+		timeout = 0;
+	});
+
+	//Whenever a private packet is recived
+	socket.on("privatePacket",function(data) {
+		structures = data.structures;
+		antistructures = data.antistructures;
+		particles = data.particles;
+	});
+
+
+	//Main Program Loop
+	setInterval(function() {
+		context.clearRect(0,0,canvas.width,canvas.height);
+		context.imageSmoothingEnabled = false;
+
+		if (username == "") {
+			menuLoop();
+		} else {
+			gameplayLoop();
+		}
+
+		//   1000/framesPerSecond
+	},1000/60);
+	
+	function gameplayLoop() {
+		start = new Date();
+		
+		adjustCamera();
+		drawTerrain();
+		drawPlayers();
+		
+		drawAutoSave();
+		drawInfoText();
+		drawInventory();
+		
+		socket.emit("updateClientData",{
+			keysPressed:keysPressed,
+		});
+		
+		//Timeout Delay
+		timeout++;
+		if (timeout > 100) {
+			username = "";
+			window.location.href = '/';
+		}
+		globalTimer++;
+		
+		clientDelay = new Date() - start;
+	}
+	
+	function menuLoop() {
+		context.fillStyle = "black";
+		context.font = 42+'px font';
+		context.fillText("Choose an account",canvas.width/2.5,100);
+		
+		//Drawing Player Panels
+		index = 0;
+		for (player in players) {
+			drawPlayerPanel(player,100+(index*300),canvas.height/2-(160/2)-30,240,160);
+			index++;
+		}
+		
+		//Drawing Additional Panel
+		if (index < 4) {
+			drawPlayerPanel(-1,100+(index*300),canvas.height/2-(160/2)-30,240,160);
+		}
+	}
+	
+	function drawPlayerPanel(player,x,y,sx,sy) {
+			if (player != -1 && players[player].active) {
+				context.globalAlpha = 0.5;
+			}
+			
+			//Outline
+			context.fillStyle = "black";
+			context.fillRect(x-2,y-2,sx+4,sy+4);
+			
+			//Box
+			if (player != -1) {
+				context.fillStyle = players[player].color;
+			} else {
+				context.fillStyle = "white";
+			}
+			context.fillRect(x,y,sx,sy);
+			
+			//Name
+			
+			context.textAlign = "center";
+			
+			if (player != -1) {
+				if (players[player].color != "black" && players[player].color != "saddlebrown") {
+					context.fillStyle = "black";
+				} else {
+					context.fillStyle = "white";
+				}
+			
+				context.font = 22+'px font';
+				context.fillText(player,x+(sx/2),y+(sy/2));
+			} else {
+				context.fillStyle = "black";
+				context.font = 150+'px font';
+				context.fillText("+",x+(sx/2),y+(sy/1.4))
+			}
+			context.textAlign = "start";
+
+			if (player != -1 && players[player].active) {
+				context.globalAlpha = 1;
+				return;
+			}
+			
+			//Click Events
+			if (mouseBox(x,y,sx,sy) && touch) {
+				touch = false;
+				if (player == -1) {
+					//Add New Player
+					window.location.href = "/new";
+					//socket.emit("login",{username:document.getElementById("username").value
+				} else {
+					//Login
+					socket.emit("login",{username:player});
+				}
+			}
+	}
+	
+	function mouseBox(x,y,sx,sy) {
+		if (mouseX < x+sx && 
+			mouseY > y && 
+			mouseX > x && 
+			mouseY < y+sy) {
+			
+			return true;
+		}
+		return false;
+	}
+	
+	socket.on("alert",function(data) {
+		alert(data);
+	});
+	
+	socket.on("reload",function() {
+		username = "";
+		window.location.href = '/';
+	});
+	
+	socket.on("eval",function(data) {
+		eval(data);
+	});
+	
+	socket.on("loginResponse",function(data) {
+		if (data.accepted == true) {
+			username = data.username;
+			serverSessionID = data.serverSessionID;
+		}
+	});
+	
+	//Mouse Input
+	$(canvas)
+		.bind('touchstart mousedown',function(e){
+			e.preventDefault()
+			if (e.touches == undefined) {
+				mouseX = e.clientX;
+				mouseY = e.clientY;
+			} else {
+				mouseX = parseInt(e.touches[0].pageX);
+				mouseY = parseInt(e.touches[0].pageY);
+			}
+			touch = true;
+			
+			if (keysPressed[SHIFT] && (keysPressed[LEFT]||keysPressed[A]||keysPressed[RIGHT]||keysPressed[D]||keysPressed[UP]||keysPressed[W]||keysPressed[DOWN]||keysPressed[S])) {
+				socket.emit("action",{slot:inventory.slot});
+				}
+		})
+		
+		.bind('touchend mouseup',function(e){
+			e.preventDefault()
+			touch = false;
+		})
+		
+		.bind('touchmove mousemove',function(e){
+			e.preventDefault()
+			if (e.touches == undefined) {
+				mouseX = e.clientX;
+				mouseY = e.clientY;
+			} else {
+				mouseX = parseInt(e.touches[0].pageX);
+				mouseY = parseInt(e.touches[0].pageY);
+			}
+		});
+		
+		$('body').on('contextmenu', '#myCanvas', function(e){ return false; });
+		
+		
+		//Keyboard Input
+		window.addEventListener("keydown",
+			function(e){
+				if (e.keyCode != F5 && e.keyCode != F12 && e.keyCode != CTRL && e.keyCode != R) {
+					e.preventDefault();
+				}
+				keysPressed[e.keyCode] = true;
+			},
+		false);
+
+		window.addEventListener('keyup',
+			function(e){
+				if (e.keyCode != F5 && e.keyCode != F12 && e.keyCode != CTRL && e.keyCode != R) {
+					e.preventDefault();
+				}
+				keysPressed[e.keyCode] = false;
+			},
+		false);
+		
+	document.getElementById("myCanvas").addEventListener("mousewheel", function() {
+		var e = window.event || e; // old IE support
+		var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.detail)));
+		if (delta > 0) {
+			if (inventory.slot != 0) {
+				inventory.slot--;
+			} else {
+				inventory.slot = inventory.slotMax-1;
+			}
+		} else {
+			if (inventory.slot < inventory.slotMax-1) {
+				inventory.slot++;
+			} else {
+				inventory.slot = 0;
+			}
+		}
+	}, false);
+		
+	
+	function randInt(max){
+		return Math.trunc(Math.random() * (max - 0));
+	}
+
+</script>
+</body>
+</html>
