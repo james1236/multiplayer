@@ -1,7 +1,6 @@
 {
   "name": "multiplayer",
   "version": "1.0.0",
-  "description": "",
   "main": "app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -9,6 +8,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "md5-file": "^4.0.0"
-  }
+    "bcryptjs": "^2.4.3",
+    "colors": "^1.4.0",
+    "express": "^4.17.1",
+    "fs": "0.0.1-security",
+    "md5-file": "^4.0.0",
+    "simplex-noise": "^2.4.0",
+    "socket.io": "^2.3.0"
+  },
+  "devDependencies": {},
+  "description": ""
 }

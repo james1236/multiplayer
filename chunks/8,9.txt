@@ -1,1 +1,0 @@
-{"x":8,"y":9,"structures":[{"type":"crate","x":143,"y":144}],"antistructures":[],"particles":[],"serverSessionID":0.2698616846827684}

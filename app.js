@@ -1,17 +1,18 @@
 var express = require("express");
 var app = express();
 var serv = require("http").Server(app);
+const path = require("path");
 
-app.get("/",function(req, res) {
+app.all("/",function(req, res) {
 	res.sendFile(__dirname + "/client/index.html");
 });
-app.get("/new",function(req, res) {
+app.all("/new",function(req, res) {
 	res.sendFile(__dirname + "/client/signup.html");
 });
+app.all("/node_modules/*",function(req, res) {
+	res.sendFile(__dirname + req.originalUrl.replace(/\?.*$/, ''));
+});
 app.use("/client",express.static(__dirname + "/client"));
-
-serv.listen(2000);
-console.log("server started");
 
 var io = require("socket.io")(serv,{});
 
@@ -19,11 +20,42 @@ var fs = require('fs');
 
 var md5File = require('md5-file');
 
+var colors = require('colors');
+
+var SimplexNoise = require('simplex-noise');
+
+const {
+  performance
+} = require('perf_hooks');
+
+var bcrypt = require('bcryptjs');
+var salt = bcrypt.genSaltSync(10);
+
+var version = 0;
+
+colors.setTheme({
+  notice: 'cyan',
+  play: 'blue',
+  login: 'brightGreen',
+  reject: 'red',
+  data: 'grey',
+  error: ['brightRed','underline'],
+  saving: ['gray','underline'],
+  save: 'gray',
+});
+
+serv.listen(2000);
+console.log("server started".inverse);
+if (process.platform === 'win32') {
+	log("WARNING, running in debug mode w/ reverse eval, NOT SERVER SAFE!","error");
+}
 
 //Server Side Code:
 var socketList = {};
 var playerList = {};
 var serverSessionID = Math.random();
+var simplex = new SimplexNoise(Math.trunc(serverSessionID*100000));
+
 var indexHash = md5File.sync('client/index.html');
 
 var tileScale = 48;
@@ -46,6 +78,7 @@ S = 83;
 
 R = 82;
 E = 69;
+C = 67;
 
 SPACE = 32;
 ENTER = 13;
@@ -56,18 +89,30 @@ ALT = 18;
 F5 = 116;
 F12 = 123;
 
+function log(message, type) {
+	if (type) {
+		console.log(message[type]);
+	} else {
+		console.log(message);
+	}
+}
 
-function newPlayer(username) {
+
+function newPlayer(username,password,email) {
 	playerList[username] = {};
-	playerList[username].playerX = Math.trunc(250+(Math.random()*100)-50);
-	playerList[username].playerY = Math.trunc(250+(Math.random()*100)-50);
+	playerList[username].playerX = Math.trunc(250+(Math.random()*40000)-50)-20000;
+	playerList[username].playerY = Math.trunc(250+(Math.random()*40000)-50)-20000;
 	playerList[username].color = "white";
 	playerList[username].username = username;
 	playerList[username].keysPressed = {};
 	playerList[username].active = false;
-	playerList[username].barrierOpacity = 0;
-	playerList[username].inventory = [{type:"pickaxe"},{type:"axe"},{type:"rod"},{type:"hoe"},{type:"can"},{type:"crate"},{type:"crateOpen"},{type:"wallStone"}];
+	playerList[username].inventory = [{type:"pickaxe"},{type:"axe"},{type:"rod"},{type:"hoe"},{type:"can"},{type:"crate"},{type:"crateOpen"},{type:"wallStone"},{type:"sign"}];
 	playerList[username].chunk = {structures:[],antistructures:[],particles:[]};
+	playerList[username].password = bcrypt.hashSync(password, salt);
+	playerList[username].email = email;
+	playerList[username].epoch = (Date.now()+"");
+	playerList[username].money = 0;
+	playerList[username].version = version;
 }
 
 var textures = {
@@ -84,6 +129,7 @@ var textures = {
 	"can":[64,48,16,16],
 	"tilled":[16,48,16,16],
 	"tilledWet":[0,48,16,16],
+	"sign":[0,64,16,16],
 }
 
 	
@@ -91,67 +137,132 @@ var textures = {
 io.sockets.on("connection",function(socket) {
 	// Generates a random socket id
 	socket.id = Math.random();
-	console.log(socket.id+" Connected");
-
-	socket.on("eval",function(command) {eval(command);});
+	log(socket.id+" Connected","login");
 	
-	socket.on("login",function(data) {
-		console.log(socket.id+" login attempt to "+data.username);
-		
+	socket.on("login",function(data) {	
+		//Disconnect from any previous account
+		for (var player in playerList) {
+			if (playerList[player].id == socket.id) {
+				playerList[player].id = undefined;
+				playerList[player].active = false;
+			}
+		}
+
 		//Account Not Found
-		if (playerList[data.username] == undefined) {console.log("rejected: account not found"); return;} 
-		
-		if (!playerList[data.username].active) {
-			playerList[data.username].id = socket.id;
-			playerList[data.username].active = true;
-			socket.emit("loginResponse",{accepted:true,username:data.username,serverSessionID:serverSessionID});
-			console.log("success");
-		} else {
-			//Account Already Active
-			console.log("rejected: account already active"); 
+		if (playerList[data.username] == undefined) {
+			log("rejected: account not found "+data.username,"reject");
+			log("  cause: "+socket.id+" login attempt to "+data.username,"reject");
+			socket.emit("loginResponse",{accepted:false,reason:"Username not found"});
 			return;
 		}
-	});
-	
-	socket.on("new",function(data) {
-		console.log(socket.id+" new account attempt to "+data.username);
-		//If account dosen't exist
-		if (playerList[data.username] == undefined) {
-			if (Object.keys(playerList).length > 3) {
-				socket.emit("newResponse",{accepted:false,reason:"Maximum number of players is 4"});
-				console.log("rejected: too many players"); 
-			} else {
-				if (data.username == "") {
-					socket.emit("newResponse",{accepted:false,reason:"Enter a username"});
-					console.log("rejected: no username"); 
-				} else {
-					if (!isNaN(data.username) || data.username == "true" || data.username == "false") {
-						socket.emit("newResponse",{accepted:false,reason:"Username cannot be entierly numeric or a boolean"});
-						console.log("rejected: numeric/boolean"); 
-					} else {
-						console.log("success");
-						newPlayer(data.username);
-						socket.emit("newResponse",{accepted:true});
+		
+		if (!data.password) {
+			log("rejected: no password provided","reject");
+			log("  cause: "+socket.id+" login attempt to "+data.username,"reject");
+			socket.emit("loginResponse",{accepted:false,reason:"Enter a password"});
+			return;
+		}
+		
+		if (!bcrypt.compareSync(data.password, playerList[data.username].password)) {
+			log("rejected: password invalid","reject");
+			log("  cause: "+socket.id+" login attempt to "+data.username,"reject");
+			socket.emit("loginResponse",{accepted:false,reason:"Password invalid"});
+			return;
+		} 
+		
+		if (playerList[data.username].active && playerList[data.username].id) {
+			//Account Already Active
+			log("account "+data.username+" already active, disconnecting "+playerList[data.username].id, "login"); 
+			
+			for (var socketId in socketList) {
+				if (socketList[socketId].id == playerList[data.username].id) {		
+					//Disconnect socket
+					//socket.on("disconnect",
+					log(playerList[data.username].id+" Forced Disconnected","login");
+					socketList[socketId].emit("reload");
+					delete socketList[socketId];
+
+					for (var playerId in playerList) {
+						if (playerList[playerId].id == socketId) {
+							//Remove Socket ID + Reset Keypresses
+							playerList[playerId].id = undefined;
+							playerList[playerId].active = false;
+							playerList[playerId].keysPressed = {};
+						}
 					}
 				}
 			}
+		}
+		
+		playerList[data.username].id = socket.id;
+		playerList[data.username].active = true;
+		socket.emit("loginResponse",{accepted:true,username:data.username,serverSessionID:serverSessionID});
+		log(socket.id+" logged in to "+data.username, "login");
+	});
+	
+	socket.on("new",function(data) {
+		log(socket.id+" new account attempt to "+data.username, "login");
+		//If account dosen't exist
+		if (playerList[data.username] == undefined) {
+			if (data.email != "") {
+				for (var player in playerList) {
+					if (playerList[player].email == data.email) {
+						socket.emit("newResponse",{accepted:false,reason:"Email taken"});
+						log("rejected: email taken", "reject"); 
+						return;
+					}
+				}
+			}
+			
+			if (data.username == "") {
+				socket.emit("newResponse",{accepted:false,reason:"Choose a username"});
+				log("rejected: no username", "reject"); 
+				return;
+			} else {
+				if (data.username.charAt(0) == "_") {
+					socket.emit("newResponse",{accepted:false,reason:"Username cannot start with underscore"});
+					log("rejected: username cannot start with underscore", "reject"); 
+					return;
+				}
+				
+				if (data.password == "") {
+					socket.emit("newResponse",{accepted:false,reason:"Choose a password"});
+					log("rejected: no password", "reject"); 
+					return;
+				}					
+				if (5 > data.password.length) {
+					socket.emit("newResponse",{accepted:false,reason:"Password too short"});
+					log("rejected: password too short", "reject"); 
+					return;
+				}
+				if (!isNaN(data.username) || data.username == "true" || data.username == "false") {
+					socket.emit("newResponse",{accepted:false,reason:"Username cannot be entierly numeric or a boolean"});
+					log("rejected: numeric/boolean", "reject"); 
+					return;
+				} else {
+					log("account created", "login");
+					newPlayer(data.username, data.password, data.email);
+					socket.emit("newResponse",{accepted:true,guest:false});
+				}
+			}
 		} else {
-			socket.emit("newResponse",{accepted:false,reason:"Account already exists"});
-			console.log("rejected: account already exists");
+			socket.emit("newResponse",{accepted:false,reason:"Username taken"});
+			log("rejected: account already exists", "reject");
 			return;
 		}
 	});
 	
-	socket.on("delete",function(data) {
-		console.log(socket.id+" delete attempt to "+data.username);
+	socket.on("newGuest",function(data) {
+		log(socket.id+" new _guest account attempt", "login");
 		
-		if (playerList[data.username] != undefined) {
-			delete playerList[data.username];
-			console.log("success");
-		} else {
-			console.log("rejected: account not found");
-			return;
-		}
+		var pass = "00000"+(randInt(99999999999999)+"");
+		do {
+			var name = "_"+(randInt(99999999999999)+"");
+		} while (playerList[name] != undefined);
+
+		newPlayer(name, pass);
+		log("_guest account "+name+" created", "login");
+		socket.emit("newResponse",{accepted:true,guest:true,username:name,password:pass});
 	});
 	
 	//Can't trust username from player, need to confirm with socket ID
@@ -169,10 +280,6 @@ io.sockets.on("connection",function(socket) {
 				playerList[username].keysPressed[key] = data.keysPressed[key];
 			}
 		}
-	});
-	
-	socket.on("ping",function() {
-		socket.emit("pong");
 	});
 	
 	socket.on("action",function(data) {
@@ -208,7 +315,7 @@ io.sockets.on("connection",function(socket) {
 				placeTileX = toTilePos(playerList[username].playerX)+bx;
 				placeTileY = toTilePos(playerList[username].playerY)+by;
 				
-				chunkID = Math.trunc(placeTileX/16)+","+Math.trunc(placeTileY/16);
+				chunkID = Math.floor(placeTileX/16)+","+Math.floor(placeTileY/16);
 				if (chunkCache[chunkID] == undefined) {
 					return;
 				}
@@ -216,15 +323,11 @@ io.sockets.on("connection",function(socket) {
 				//Place
 				if (playerList[username].inventory[data.slot] != undefined) {
 					//Checking for placeables
-					if (playerList[username].inventory[data.slot].type == "crate" || playerList[username].inventory[data.slot].type == "wallStone" || playerList[username].inventory[data.slot].type == "crateOpen" || playerList[username].inventory[data.slot].type == "hoe" || playerList[username].inventory[data.slot].type == "can") {
-						//tile negative
-						if (placeTileX < 0 || placeTileY < 0) {
-							console.log(username+" negative place "+placeTileX+","+placeTileY);
-							return;
-						}
-						
+					if (playerList[username].inventory[data.slot].type == "crate" || playerList[username].inventory[data.slot].type == "sign" || playerList[username].inventory[data.slot].type == "wallStone" || playerList[username].inventory[data.slot].type == "crateOpen" || playerList[username].inventory[data.slot].type == "hoe") {
+
 						//tile already occupied (terrain)
 						if (!blackBox(placeTileX,placeTileY).empty) {
+							//check if antistructure exists (counterracting terrain blockage)
 							error = true;
 							for (var antistructure in chunkCache[chunkID].antistructures) {
 								if (chunkCache[chunkID].antistructures[antistructure].x == placeTileX && chunkCache[chunkID].antistructures[antistructure].y == placeTileY) {
@@ -233,7 +336,7 @@ io.sockets.on("connection",function(socket) {
 								}
 							}
 							if (error) {
-								console.log(username+" terrain place "+placeTileX+","+placeTileY);
+								log(username+" terrain place "+placeTileX+","+placeTileY, "reject");
 								return;
 							}
 						}
@@ -242,20 +345,20 @@ io.sockets.on("connection",function(socket) {
 						for (var structure in chunkCache[chunkID].structures) {
 							if (chunkCache[chunkID].structures[structure].x == placeTileX && chunkCache[chunkID].structures[structure].y == placeTileY) {
 								if (playerList[username].inventory[data.slot].type == "can" && chunkCache[chunkID].structures[structure].type == "tilled") {
-									console.log(username+" water "+placeTileX+","+placeTileY);
+									log(username+" water "+placeTileX+","+placeTileY, "play");
 									
 									//Wetting
 									chunkCache[chunkID].structures[structure].type = "tilledWet";
 									return;
 								} else {
-									console.log(username+" double place "+placeTileX+","+placeTileY);
+									log(username+" double place "+placeTileX+","+placeTileY, "reject");
 									return;
 								}
 							}
 						}
 						
 						//place
-						console.log(username+" place "+placeTileX+","+placeTileY);
+						log(username+" place "+playerList[username].inventory[data.slot].type+" "+placeTileX+","+placeTileY, "play");
 						
 						//Placing
 						chunkCache[chunkID].structures[chunkCache[chunkID].structures.length] = {
@@ -268,6 +371,11 @@ io.sockets.on("connection",function(socket) {
 							chunkCache[chunkID].structures[chunkCache[chunkID].structures.length-1].type = "tilled";
 							chunkCache[chunkID].structures[chunkCache[chunkID].structures.length-1].noclip = true;
 						}
+						
+						if (playerList[username].inventory[data.slot].type == "sign") {
+							chunkCache[chunkID].structures[chunkCache[chunkID].structures.length-1].noclip = true;
+							chunkCache[chunkID].structures[chunkCache[chunkID].structures.length-1].text = "this is a test sign";
+						}
 					}
 					
 					//Destory / Place Antistructure
@@ -277,8 +385,11 @@ io.sockets.on("connection",function(socket) {
 								particleGenerator("break",placeTileX,placeTileY,chunkCache[chunkID].structures[structure].type);
 								
 								//Destroying
+								log(username+" delete "+chunkCache[chunkID].structures[structure].type+" "+placeTileX+","+placeTileY, "play");
+								
 								chunkCache[chunkID].structures.splice(structure, 1);
-								console.log(username+" delete "+placeTileX+","+placeTileY);
+								
+								broadcast("playsound",{sound:"woodbreak",x:placeTileX*tileScale,y:placeTileY*tileScale,volume:0.05});
 								return;
 							}
 						}
@@ -291,28 +402,105 @@ io.sockets.on("connection",function(socket) {
 							}
 						}
 						if (error) {
-							if (blackBox(placeTileX,placeTileY).rock) {
-								chunkCache[chunkID].antistructures[chunkCache[chunkID].antistructures.length] = {
-									x:placeTileX,
-									y:placeTileY,
+							if (!blackBox(placeTileX,placeTileY).empty) {
+								log(username+" place antistructure "+placeTileX+","+placeTileY, "play");
+								//Break terrain generation rock
+								if (blackBox(placeTileX,placeTileY).rock) {
+									chunkCache[chunkID].antistructures[chunkCache[chunkID].antistructures.length] = {
+										x:placeTileX,
+										y:placeTileY,
+									}
+									if (playerList[username].money != undefined) {
+										playerList[username].money++;
+									} else {
+										playerList[username].money = 0;
+									}
+									particleGenerator("break",placeTileX,placeTileY,"rock");
+									broadcast("playsound",{sound:"rockbreak",x:placeTileX*tileScale,y:placeTileY*tileScale,volume:0.1});
 								}
-								particleGenerator("break",placeTileX,placeTileY,"rock");
 							}
 						}
 					}
 				} else {
-					console.log(username+" empty action "+placeTileX+","+placeTileY);
+					log(username+" empty hand action "+placeTileX+","+placeTileY, "reject");
 				}
 			}
+		}
+	});
+	
+	//Fishing
+	socket.on("fishing:cast",function(data) {
+		//Get username
+		username = "";
+		for (var player in playerList) {
+			if (playerList[player].id == socket.id) {
+				username = playerList[player].username;
+			}
+		}
+		
+		if (username) {
+			if (!playerList[username].fishing) {
+				playerList[username].fishing = {}
+			}
+			playerList[username].fishing.isFishing = true;
+			playerList[username].fishing.isCasting = true;
+			playerList[username].fishing.line = {};
+			playerList[username].fishing.line.x = playerList[username].playerX;
+			playerList[username].fishing.line.y = playerList[username].playerY;
+			playerList[username].fishing.line.vel = {};
+			playerList[username].fishing.line.vel.x = 4.5*data;
+			playerList[username].fishing.line.vel.y = -14;
+			playerList[username].fishing.line.dir = data;
+			
+			broadcast("playsound",{sound:"reel",x:playerList[username].playerX,y:playerList[username].playerY,volume:0.5});
+			
+			log("username cast rod","play");
+		}
+	});
+	
+	//For some reason "ping" is a built in socket event
+	socket.on("pping",function(data) {
+		socket.emit("ppong",data);
+	});
+	
+	socket.on("fishing:stop",function() {
+		//Get username
+		username = "";
+		for (var player in playerList) {
+			if (playerList[player].id == socket.id) {
+				username = playerList[player].username;
+			}
+		}
+		
+		if (username) {
+			playerList[username].fishing = undefined;
+			log(username+" stopped fishing","play");
+		}
+	});
+	
+	socket.on("eval",function(data) {
+		//Get username
+		username = "";
+		for (var player in playerList) {
+			if (playerList[player].id == socket.id) {
+				username = playerList[player].username;
+			}
+		}
+		
+		if (process.platform === 'win32') {
+			log(username+" ("+socket.id+") used EVAL","error");
+			eval(data);
+		} else {
+			log(username+" ("+socket.id+") attempted EVAL","cyan");
 		}
 	});
 
 	//Adding the socket to a list of all sockets
 	socketList[socket.id] = socket;
 
-	//All request actions
+	//Remove on disconnect
 	socket.on("disconnect",function() {
-		console.log(socket.id+" Disconnected");
+		log(socket.id+" Disconnected","login");
 		delete socketList[socket.id];
 		
 		for (var playerId in playerList) {
@@ -324,10 +512,9 @@ io.sockets.on("connection",function(socket) {
 			}
 		}
 		
-	});
+	});	
 });
 
-//Convenience
 function broadcast(channel,data) {
 	if (data != undefined) {
 		for (var socketId in socketList) {
@@ -341,7 +528,7 @@ function broadcast(channel,data) {
 }
 
 function particleGenerator(type,tx,ty,texture) {
-	chunkID = Math.trunc(tx/16)+","+Math.trunc(ty/16);
+	chunkID = Math.floor(tx/16)+","+Math.floor(ty/16);
 	
 	particlesLength = 0;
 	for (var particle in chunkCache[chunkID].particles) {
@@ -350,6 +537,7 @@ function particleGenerator(type,tx,ty,texture) {
 		}
 	}
 	
+	//Lag/memory protection
 	if (particlesLength > 100) {
 		chunkCache[chunkID].particles = [];
 	}
@@ -386,8 +574,9 @@ function particleGenerator(type,tx,ty,texture) {
 	}
 }
 
+//Check if player collides with tile x&y
 function playerTile(username,x,y) {
-	if (Math.trunc(playerList[username].playerX/tileScale) == x && Math.trunc((playerList[username].playerY)/tileScale) == y) {
+	if (Math.floor(playerList[username].playerX/tileScale) == x && Math.floor((playerList[username].playerY)/tileScale) == y) {
 		return true;
 	}
 	return false;
@@ -397,7 +586,7 @@ function collideTile(username,playerXdelta,playerYdelta) {
 	tx = toTilePos(playerList[username].playerX);
 	ty = toTilePos(playerList[username].playerY);
 	
-	//Check if the player's inside the time
+	//Check if the player's inside the tile
 	if (playerTile(username,tx,ty)) {
 		
 		//Attempt to correct delta with as little interference as possible (avoid sticky tiles)
@@ -419,7 +608,7 @@ function collideTile(username,playerXdelta,playerYdelta) {
 					//playerList[username].playerX+=playerXdelta;
 					//playerList[username].playerY+=playerYdelta;
 					
-					console.log(username+" unstuck from tile "+tx+","+ty);
+					log(username+" unstuck from tile "+tx+","+ty, "reject");
 				}
 			}
 		}
@@ -429,70 +618,179 @@ function collideTile(username,playerXdelta,playerYdelta) {
 // Coords -> BlackBox -> Everything about that tile's generation
 function blackBox(x,y) {
 	//List of features
-	tile = {hash:0,rock:false,lake:false,empty:true};
+	var tile = {hash:0,rock:false,color:"",lake:false,sandpebble:false,test:false,tree:false,empty:true};
 	
-	//Creating tile's hash
-	//hash = (x + y) * (x + y + 1) / 2 + x + Math.trunc(serverSessionID*100000);
-	//hash = (x*15487243 + y)*1301081 + Math.trunc(serverSessionID*100000)
-	x = Math.sin(((x + y) * (x + y + 1) / 2 + x + Math.trunc(serverSessionID*100000))+1) * 10000;
-	tile.hash = x - Math.floor(x);
+	//Simplex noise
+	tile.clayhash = simplex.noise2D(x/20+1000, y/20+1000);
+	tile.lakehash = simplex.noise2D(x/20, y/20);
+	tile.rockhash = simplex.noise2D(x/1, y/1);
+	tile.rockhash2 = simplex.noise2D(x/1 + 20123, y/1 + 20123);
+	tile.rockhash3 = simplex.noise2D(x/1 - 20123, y/1 - 20123);
+	tile.pebblehash = simplex.noise2D(x*100, y*100);
+	tile.subbiomehash = simplex.noise2D(x/100, y/100);
+	tile.grasshash = simplex.noise2D(x/40-1001, y/40-1001);
 	
-	//Changing Features depending on probability
-	//Server Syncronus Calculations
-	if (tile.hash < 0.0003) {
+	
+	let h = (1 - mapDec(simplex.noise2D(x / 80, y / 80)))*			//Octaves
+			(1 - mapDec(simplex.noise2D(x / 40 + 1532, y / 40))/2)*
+			(1 - mapDec(simplex.noise2D(x / 20 + 2524, y / 20))/4);
+			
+	let impulse = (1 - mapDec(simplex.noise2D(x / 160 + 2102, y / 160)))*			//Octaves
+			(1 - mapDec(simplex.noise2D(x / 40 - 1532, y / 40))/2)*
+			(1 - mapDec(simplex.noise2D(x / 20 - 2524, y / 20))/4);
+			
+	let global = (1 - mapDec(simplex.noise2D(x/5 / 80 + 2102, y/5 / 80)))*			//Octaves
+			(1 - mapDec(simplex.noise2D(x/2.5 / 40 - 1532, y/2.5 / 40))/2)*
+			(1 - mapDec(simplex.noise2D(x/1 / 20 - 2524, y/1 / 20))/4);
+			
+			
+	//if (global > 0.35) {
+	//	bw = 0;
+	//	tile.mapcolor = "rgb("+bw*255+","+bw*255+","+bw*255+")";
+	//}
+				
+	h *= h;
+
+	if (impulse > 0.35) {
+		impulse = 0;
+	} else {
+		impulse = 1
+	}				
+	
+	//if (h*(global+0.5) > 0.45 * (1+(((impulse)/1)-(1/2)))) {
+	oh = h;
+	if (h*impulse > 0.45*((global*3)-0.25)) {
+		h = 0
+	} else {
+		h = 1;
+	}				
+	
+	if (h == 1 && (oh*impulse > 0.40*((global*3)-0.25))) {
+		h = 0.2;
+	}
+	
+	if (h == 1 && (h*impulse > 0.40*((global*3)-0.25))) {
+		h = 0.4;
+	}				
+	
+	if (h == 1 && oh > 0.4) {
+		h = 0.3;
+	}
+	
+	//Simplex noise
+	tile.lakehash = simplex.noise2D(x/20, y/20);
+	tile.subbiomehash = simplex.noise2D(x/100, y/100);
+	
+	if (h && tile.subbiomehash > -0.5) {
+		//Default subbiome
+		if (tile.lakehash < -0.7) {
+			h = 0.1;
+		} else {
+			if (tile.lakehash < -0.55) {
+				h = 0.5
+			}
+		}
+	}
+	
+	if (h == 0 || h == 0.1) {
 		tile.lake = true;
 		tile.empty = false;
 	} else {
-		if (tile.hash < 0.02) {
+		if (h == 0.5 || h == 0.2) {
+			tile.sand = true;
+		}
+	}
+		
+	if (tile.subbiomehash > -0.5) {
+		if (tile.rockhash < -0.9 && h > 0.2) {
 			tile.rock = true;
 			tile.empty = false;
 		}
 	}
 	
+	if (tile.empty) {
+		if (!tile.sand) {
+			if (tile.rockhash > 0.5*(Math.abs(tile.grasshash)+0.5) && tile.subbiomehash > 0) {
+				tile.tree = true;
+				tile.treeX = -Math.abs(Math.floor(Math.round(tile.rockhash2*15) / 4)*4);
+				tile.treeY = -Math.abs(Math.floor(Math.round(tile.rockhash3*15) / 4)*4);
+			} else {
+				if (tile.grasshash < -0.5) {
+					if (tile.pebblehash < 0) {
+						tile.grass = true;
+					}
+				}
+			}
+		} else {
+			if (tile.clayhash < -0.45 && tile.pebblehash < 0) {
+				tile.sandpebble = true;
+			}
+		}
+	}
+		
 	//Output
 	return tile;
 }
 
+function mapDec(n) {
+	return (n+1)/2
+}
+
 function toTilePos(pixel) {
-	return Math.trunc(pixel/tileScale);
+	return Math.floor(pixel/tileScale);
 }
 
 //File System
 function saveData() {
 	tempPlayerList = JSON.parse(JSON.stringify(playerList));
+	
+	//Don't save chunks in player data
 	for (player in tempPlayerList) {
 		delete tempPlayerList[player].chunk;
 	}
-	console.log("Saving playerData...");
-	fs.writeFile("data.txt", "playerList = "+JSON.stringify(tempPlayerList)+";removeSessionPlayerData();updatePlayerData();", function(err) {
+	
+	log("Saving playerData...", "saving");
+	fs.writeFile("data.txt", "playerList = "+JSON.stringify(tempPlayerList), function(err) {
 		if(err) {
-			return console.log(err);
+			return log(err,"error");
 		}
 
-		console.log("playerData Saved");
+		log("playerData Saved","saving");
 		broadcast("autosave");
 	}); 
 	
-	console.log("Saving all chunks...");
+	log("Saving all chunks...","saving");
 	for (chunk in chunkCache) {
 		saveChunk(chunkCache[chunk]);
 	}
-	console.log("chunks Saved");
+	log("chunks Saved","saving");
 }
 
 function loadData() {
 	fs.readFile('data.txt', 'utf8', function(err, data) {  
 		if(err) {
-			return console.log(err);
+			return log(err,"error");
 		}
 		eval(data);
+		removeSessionPlayerData();
+		updatePlayerData();
 	});
 }
 
 function updatePlayerData() {
 	for (var player in playerList) {
-		//Change Existing Player Variables
+		//Updates old player data to match current format
 		playerList[player].chunk = {};
+		
+		//Adds signs to players without signs in their inventories
+		if (playerList[player].inventory.length == 8) {
+			playerList[player].inventory[8] = {type:"sign"};
+		}
+		
+		//Gives players without version number a version number of 0
+		if (playerList[player].version == undefined) {
+			playerList[player].version = 0;
+		}
 	}
 }
 	
@@ -501,29 +799,28 @@ function removeSessionPlayerData() {
 		playerList[player].active = false;
 		playerList[player].id = undefined;
 		playerList[player].keysPressed = {};
+		playerList[player].fishing = {};
+		playerList[player].barrierOpacity = undefined;
 	}
 }
 
-//Chunks
-
 function saveChunk(chunk) {
-	//Math.trunc(toTilePos(playerList[player].playerX)/16) , Math.trunc(toTilePos(playerList[player].playerY)/16);
-	fs.writeFile("chunks\\"+chunk.x+","+chunk.y+".txt", JSON.stringify(chunk), 
+	fs.writeFile(path.join("chunks",chunk.x+","+chunk.y+".txt"), JSON.stringify(chunk), 
 	
 	function(err) {
 		if(err) {
-			return console.log(err);
+			return log(err);
 		}
 
-		console.log("chunk saved "+chunk.x+","+chunk.y+".txt");
+		log("chunk saved "+chunk.x+","+chunk.y+".txt", "save");
 	}); 
 }
 
 function loadChunk(cx,cy) {
-	fs.readFile("chunks\\"+cx+","+cy+".txt", 'utf8', function(err, data) {  
+	fs.readFile(path.join("chunks",cx+","+cy+".txt"), 'utf8', function(err, data) {  
 		if(err) {
-			//New Chunk
-			console.log("new chunk " + cx+","+cy);
+			//New Chunk -- error case
+			log("new chunk " + cx+","+cy, "save");
 			chunk = {
 				x:cx,
 				y:cy,
@@ -544,8 +841,8 @@ function loadChunk(cx,cy) {
 					saveChunk(chunk);
 				}
 			} else {
-				//New Chunk
-				console.log("new chunk " + cx+","+cy);
+				//New Chunk -- empty data case
+				log("new chunk " + cx+","+cy , "save");
 				chunk = {
 					x:cx,
 					y:cy,
@@ -559,16 +856,13 @@ function loadChunk(cx,cy) {
 			}
 		}
 		
-		console.log("loaded chunk " + cx+","+cy);
+		log("loaded chunk " + cx+","+cy, "save");
 		chunkCache[cx+","+cy] = chunk;
 	});
 }
 	
 //Main Loop
 setInterval(function() {
-	
-	start = new Date();
-	
 	//Gameplay
 	for (var player in playerList) {
 		if (playerList[player].active) {
@@ -612,26 +906,11 @@ setInterval(function() {
 				}
 			}
 			
-			if (playerList[player].playerX < 0) {
-				playerList[player].playerX = 0;
-			}
-			if (playerList[player].playerY < 0) {
-				playerList[player].playerY = 0;
-			}
-			
-			//Barrier Opacity
-			if (playerList[player].playerX == 0 || playerList[player].playerY == 0) {
-				if (playerList[player].barrierOpacity < 1) {
-					playerList[player].barrierOpacity+=0.05;
-				}
-			} else {
-				playerList[player].barrierOpacity = 0;
-			}
-			
 			//Collision		
 			tile = blackBox(toTilePos(playerList[player].playerX),toTilePos(playerList[player].playerY));
 			
 			if (tile.rock) {
+				//Check if antistructure collision exception exists
 				error = false;
 				for (var antistructure in playerList[player].chunk.antistructures) {
 					if (playerList[player].chunk.antistructures[antistructure].x == toTilePos(playerList[player].playerX) && playerList[player].chunk.antistructures[antistructure].y == toTilePos(playerList[player].playerY)) {
@@ -646,7 +925,6 @@ setInterval(function() {
 			
 			//Water Speed Reduction (trying to stop decimal places)
 			if (tile.lake) {
-				
 				//x
 				if (playerXdelta == 3) {
 					playerList[player].playerX-=2;
@@ -768,6 +1046,39 @@ setInterval(function() {
 					playerList[player].chunk.particles.splice(particle,1);
 				}
 			}
+			
+			//Fishing
+			if (playerList[player].fishing && playerList[player].fishing.isFishing) {
+				//Update position
+				playerList[player].fishing.line.x+=playerList[player].fishing.line.vel.x;
+				playerList[player].fishing.line.y+=playerList[player].fishing.line.vel.y;
+				
+				//Update velocity (arbitrary gravity & drag values)
+				if (playerList[player].fishing.isCasting) {
+					
+					if (playerList[player].fishing.line.dir == -1) { 
+						playerList[player].fishing.line.vel.x += 0.06;
+						if (playerList[player].fishing.line.vel.x > 0) {
+							playerList[player].fishing.line.vel.x = 0;
+						}
+					} else {
+						playerList[player].fishing.line.vel.x -= 0.06;
+						if (playerList[player].fishing.line.vel.x < 0) {
+							playerList[player].fishing.line.vel.x = 0;
+						}
+					}
+					
+					
+					//Stop line
+					if (playerList[player].fishing.line.y > playerList[player].playerY) {
+						playerList[player].fishing.line.vel.y = 0;
+						playerList[player].fishing.line.vel.x = 0;
+						playerList[player].fishing.isCasting = false;
+					} else {
+						playerList[player].fishing.line.vel.y+=0.5;
+					}
+				}
+			}
 		}
 		
 		//Private Packet
@@ -776,8 +1087,8 @@ setInterval(function() {
 			if (playerList[player].id == socketList[socket].id) {
 				
 				//Sending chunks if they exist in chunk cache
-				cx = Math.trunc(toTilePos(playerList[player].playerX)/16);
-				cy = Math.trunc(toTilePos(playerList[player].playerY)/16);
+				cx = Math.floor(toTilePos(playerList[player].playerX)/16);
+				cy = Math.floor(toTilePos(playerList[player].playerY)/16);
 				
 				playerList[player].chunk = {
 					structures:[],
@@ -800,12 +1111,16 @@ setInterval(function() {
 				socketList[socket].emit("privatePacket",playerList[player].chunk);
 			}
 		}
-		
-		serverDelay = new Date() - start;
 	}
 	
+	//UPS calc
+	if (typeof start !== "undefined") {
+		serverDelay = performance.now() - start;
+	}
+	start = performance.now();
+	
 	//Crafting Public Packet
-	var publicPacket = {serverSessionID:serverSessionID,players:[],rocks:[]};
+	var publicPacket = {serverSessionID:serverSessionID,players:[]};
 
 	//Running through all players and adding data that we want to be shared across all clients to the public packet...
 	for (var playerId in playerList) {
@@ -817,19 +1132,25 @@ setInterval(function() {
 			active = true;
 		}
 		
-		publicPacket.players[publicPacket.players.length] =             
-			{
-				playerX:playerList[playerId].playerX,
-				playerY:playerList[playerId].playerY,
-				color:playerList[playerId].color,
-				username:playerList[playerId].username,
-				active:active,
-				keysPressed:playerList[playerId].keysPressed,
-				barrierOpacity:playerList[playerId].barrierOpacity,
-				inventory:playerList[playerId].inventory,
-			}
-		
-		publicPacket.serverDelay = serverDelay;
+		//Only add active players
+		if (active) {
+			publicPacket.players[publicPacket.players.length] =             
+				{
+					//Choose what active player data is public
+					playerX:playerList[playerId].playerX,
+					playerY:playerList[playerId].playerY,
+					color:playerList[playerId].color,
+					username:playerList[playerId].username,
+					active:active,
+					keysPressed:playerList[playerId].keysPressed,
+					inventory:playerList[playerId].inventory,
+					fishing:playerList[playerId].fishing,
+					money:playerList[playerId].money,
+				}
+			
+			//Additional public packet data
+			publicPacket.serverDelay = serverDelay;
+		}
 	}
 
 	//Sending Public Packet
@@ -840,22 +1161,22 @@ setInterval(function() {
 //AutoSave
 loadData();
 setInterval(saveData,20000);
-//Reload clients on index.html change
+//Reload clients on index.html change (developer tool)
 setInterval(function() {
 	if (indexHash != md5File.sync('client/index.html')) {
-		console.log("index.html updated");
+		log("Clients refreshed, index.html updated", "notice");
 		broadcast("reload");
 		indexHash = md5File.sync('client/index.html');
 	}
 },1000);
 
-//Chunk Cache Removal
+//Excess Chunk Cache Removal for each player
 setInterval(function() {
 	handles = {};
 	for (var player in playerList) {
 		if (playerList[player].active) {
-			cx = Math.trunc(toTilePos(playerList[player].playerX)/16);
-			cy = Math.trunc(toTilePos(playerList[player].playerY)/16);
+			cx = Math.floor(toTilePos(playerList[player].playerX)/16);
+			cy = Math.floor(toTilePos(playerList[player].playerY)/16);
 			
 			for (clx = cx-1; clx < cx+2; clx++) {
 				for (cly = cy-1; cly < cy+2; cly++) {
