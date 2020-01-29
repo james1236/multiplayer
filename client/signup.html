@@ -11,15 +11,20 @@
 </style>
 
 <body style="background-color:#859ba9">
-<div id="login" style="position:absolute; z-index:1000; font-size: 32px; left:40%; top:20%">
+<center>
+<div id="login" style="background-color: rgba(255,255,255,0.2); padding:15px; position: absolute; top:20%; left: calc(50% - 150px); z-index:1000; font-size: 26px; top:20%; text-shadow: 2px 2px 0 #000; color: white">
 
-			Username&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="text" id="username"></input><br>
-			&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-			&nbsp;&nbsp;&nbsp;&nbsp;<button id="signUp" onclick="var socket = io();socket.emit('new',{username:document.getElementById('username').value});socket.on('newResponse',function(data){if (data.accepted) {window.location.href = '/';} else {document.getElementById('error').textContent = data.reason;}});">Add Account</button>
+			<span style="font-size: 32px;"><u>New Player</u></span><br><br>
+			Username&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="username" id="username@12837123"></input><br><br>
+			Password&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="password" id="password@12837123"></input><br><br>
+			Email (optional)&nbsp;&nbsp;&nbsp;<input type="email" id="email@12837123"></input><br><br>
+			<button id="signUp" style="font-size: 16px" onclick="window.location.href = '/'">Back</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+			<button id="signUp" style="font-size: 16px" onclick="var socket = io();socket.emit('new',{username:document.getElementById('username@12837123').value,password:document.getElementById('password@12837123').value,email:document.getElementById('email@12837123').value,});socket.on('newResponse',function(data){if (data.accepted) {window.location.href = '/';} else {document.getElementById('error').textContent = data.reason;}});">Create Account</button>
 
 		<center>
-			<pre id="error" style="color: red; font-size: 20px;"></pre>
+			<pre id="error" style="text-shadow: 1.5px 1.5px 0 #000; color: red; font-size: 20px;"></pre>
 		</center>
 	</div>
 	<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
 	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+	</center>
