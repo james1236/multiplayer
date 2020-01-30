@@ -22,5 +22,4 @@ Connect to `localhost:2000` in a web browser (tested only on chrome)<br><br>
     Sprint -------- Spacebar
     Select Item --- Scroll / Num Keys (1-9)
     Use / Place --- SHIFT + WSAD or Arrow Keys for direction + Click
-    Open Map ------ M
     Debug --------- C
