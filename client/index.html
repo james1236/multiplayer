@@ -17,6 +17,7 @@
 
 <body>
 <canvas id="easel" style="top: 2px; left: 2px; width:16px; height:16px; position: fixed; background-color: #fff; display:none; z-index:99999;"></canvas>
+<canvas id="minimap" style="top: 25px; left: 25px; width:256px; height:256px; position: fixed; background-color: rgba(0,0,0,0); z-index:9999; outline: 2px solid #FFF; opacity: 1;"></canvas>
 <canvas id="noiseCanvas" style="top: 50px; left: 50px; width:250px; height:250px; position: fixed; display: none; background-color: rgba(0,0,0,0); z-index:9999;"></canvas>
 <canvas id="myCanvas" style="top:0px;left:0px;position: fixed;background-color:#859ba9"></canvas>
 <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
@@ -64,16 +65,7 @@
 	
 	var socket = io();
 	
-	//Noise canvas
-	var noiseCanvas = document.getElementById("noiseCanvas");
-	var noiseContext = noiseCanvas.getContext("2d");
-	var map = false;
-	
-	var noiseX = 0;
-	var noiseY = 0;
-	var noiseComplete = true;
-	var noiseLimit = -1;
-	var noiseScale = 1;
+	//Cache
 	
 	var tileCache = {};
 	
@@ -82,6 +74,8 @@
 		cy = Math.floor(y/16);
 		if (tileCache[cx+","+cy]) {
 			return tileCache[cx+","+cy][x+","+y];
+		} else {
+			return false;
 		}
 	}
 	
@@ -126,6 +120,21 @@
 		}
 	}
 	
+	//Noise canvas & minimap
+	var noiseCanvas = document.getElementById("noiseCanvas");
+	var noiseContext = noiseCanvas.getContext("2d");	
+	var minimapCanvas = document.getElementById("minimap");
+	var minimapContext = minimapCanvas.getContext("2d");
+	var minimapDrawn = 0;
+	var map = false;
+	
+	var noiseX = 0;
+	var noiseY = 0;
+	var noiseComplete = true;
+	var noiseLimit = -1;
+	var noiseScale = 1;
+	
+	
 	function scaleNoiseCanvas() {
 		noiseCanvas.width = window.innerWidth-100; 
 		noiseCanvas.height = window.innerHeight-100;
@@ -134,9 +143,20 @@
 		noiseCanvas.style.height = Math.round(noiseCanvas.height)+"px";
 	}
 
-	scaleNoiseCanvas();
+	scaleNoiseCanvas();	
+	
+	function scaleMinimapCanvas() {
+		minimapCanvas.width = 256; 
+		minimapCanvas.height = 256;
+
+		minimapCanvas.style.width = Math.round(minimapCanvas.width)+"px";
+		minimapCanvas.style.height = Math.round(minimapCanvas.height)+"px";
+	}
+
+	scaleMinimapCanvas();
 	
 	function viewNoise(noiseScale=1,limit=10000) {
+		return;
 		if (!noiseComplete || noiseX != 0) {
 			return;
 		}
@@ -153,6 +173,7 @@
 	}
 	
 	function updateNoiseMap() {
+		return;
 		if (noiseComplete) {
 			false;
 		}
@@ -185,6 +206,36 @@
 			noiseContext.fillRect(toTilePos(players[username].playerX)*noiseScale+Math.floor((noiseCanvas.width/2)/noiseScale)-(8*noiseScale),toTilePos(players[username].playerY)*noiseScale+Math.floor((noiseCanvas.height/2)/noiseScale)-(8*noiseScale),noiseScale*16,noiseScale*16);
 		}
 		noiseContext.globalAlpha = 1;
+	}
+	
+	function updateMinimap() {		
+		total = 128;
+		wid = 2;
+		
+		if (minimapDrawn > total*total) {
+			minimapDrawn = 0;
+		}
+		
+		for (var i = 0; i < 300; i++) {
+			minimapDrawn = randInt(total*total);
+		
+			var x = minimapDrawn % total;
+			var y = Math.floor(minimapDrawn / total);
+		
+			//Get output color
+			tile = tileCacheFetch(toTilePos(players[username].playerX)+(x)-total/wid,toTilePos(players[username].playerY)+(y)-total/wid);
+			if (!tile) {
+				tile = blackBox(toTilePos(players[username].playerX)+(x)-total/wid,toTilePos(players[username].playerY)+(y)-total/wid);
+			}
+			if (tile.mapcolor) {
+				minimapContext.fillStyle = tile.mapcolor;
+			} else {
+				minimapContext.fillStyle = tile.color;
+			}
+			minimapContext.fillRect((x*wid),(y*wid),wid,wid);
+			
+			minimapDrawn++;
+		}
 	}
 	
 	//Easel
@@ -558,10 +609,7 @@
 		if (autoSaveOpacity > 0) {
 			context.font = 30+'px font';
 			context.globalAlpha = autoSaveOpacity;
-			context.fillStyle = "black";
-			context.fillText("> "+message,15+2,50+2);
-			context.fillStyle = "white";
-			context.fillText("> "+message,15,50);
+			fillTextShadow(context,"> "+message,23,315,2)
 			context.globalAlpha = 1;
 			
 			autoSaveOpacity -=0.01;
@@ -594,7 +642,7 @@
 		
 		
 		mx = canvas.width/3;
-		my = canvas.height/3;
+		my = canvas.height/3+13;
 		mi = 30;
 		ms = 2;
 		
@@ -606,8 +654,7 @@
 		fillTextShadow(context, "    Sprint ------------  Spacebar", mx, my+(mi*2), ms);
 		fillTextShadow(context, "    Build/Use ---------  Shift+(WASD/Arrow Keys)+Click", mx, my+(mi*3), ms);
 		fillTextShadow(context, "    Select Item -------  Scroll/Numkeys 1-9", mx, my+(mi*4), ms);
-		fillTextShadow(context, "    Open Map ----------  M", mx, my+(mi*5), ms);
-		fillTextShadow(context, "    Debug Menu --------  C", mx, my+(mi*6), ms);
+		fillTextShadow(context, "    Debug Menu --------  C", mx, my+(mi*5), ms);
 		
 		if (mouseBox(canvas.width/3-25+10.5*tileScale-17, my-5-35, tileScale, tileScale)) {
 			context.globalAlpha = 0.7;
@@ -1039,9 +1086,7 @@
 		context.textAlign = "right";
 		context.font = 30+'px font';
 		context.fillStyle = "black";
-		context.fillText(money, canvas.width-tileScale*1.4+2, tileScale+tileScale/7+2+yShift);		
-		context.fillStyle = "white";
-		context.fillText(money, canvas.width-tileScale*1.4, tileScale+tileScale/7+yShift);
+		fillTextShadow(context,money, canvas.width-tileScale*1.4, tileScale+tileScale/7+yShift,2);
 		
 		context.textAlign = "left";
 
@@ -1076,25 +1121,10 @@
 			context.textAlign = "right";
 			context.font = 30+'px font';
 			
-			context.fillStyle = "black";
-			context.fillText(Math.floor(arrayAverage(last30ServerUPS)*10)/10+" serverUPS   "+Math.floor(arrayAverage(last30ClientFPS)*10)/10+" clientFPS   "+particlesLength+"particles   ",canvas.width-10+2,30+2);
-			context.fillStyle = "white";
-			context.fillText(Math.floor(arrayAverage(last30ServerUPS)*10)/10+" serverUPS   "+Math.floor(arrayAverage(last30ClientFPS)*10)/10+" clientFPS   "+particlesLength+"particles   ",canvas.width-10,30);
-			
-			context.fillStyle = "black";
-			context.fillText(structures.length+"structures   "+antistructures.length+"antistructures",canvas.width-10+2,60+2);
-			context.fillStyle = "white";
-			context.fillText(structures.length+"structures   "+antistructures.length+"antistructures",canvas.width-10,60);
-		
-			context.fillStyle = "black";
-			context.fillText("chunk: "+Math.floor(toTilePos(players[username].playerX)/16)+"x, "+Math.floor(toTilePos(players[username].playerY)/16)+"y   player: "+toTilePos(players[username].playerX)+"x, "+toTilePos(players[username].playerY)+"y",canvas.width-10+2,90+2);
-			context.fillStyle = "white";
-			context.fillText("chunk: "+Math.floor(toTilePos(players[username].playerX)/16)+"x, "+Math.floor(toTilePos(players[username].playerY)/16)+"y   player: "+toTilePos(players[username].playerX)+"x, "+toTilePos(players[username].playerY)+"y",canvas.width-10,90);
-			
-			context.fillStyle = "black";
-			context.fillText("online "+(Object.keys(players).length-1)+"   ping "+ping+"ms",canvas.width-10+2,120+2);
-			context.fillStyle = "white";
-			context.fillText("online "+(Object.keys(players).length-1)+"   ping "+ping+"ms",canvas.width-10,120);
+			fillTextShadow(context,Math.floor(arrayAverage(last30ServerUPS)*10)/10+" serverUPS   "+Math.floor(arrayAverage(last30ClientFPS)*10)/10+" clientFPS   "+particlesLength+"particles   ",canvas.width-10,30,2);
+			fillTextShadow(context,structures.length+"structures   "+antistructures.length+"antistructures",canvas.width-10,60,2);
+			fillTextShadow(context,"chunk: "+Math.floor(toTilePos(players[username].playerX)/16)+"x, "+Math.floor(toTilePos(players[username].playerY)/16)+"y   player: "+toTilePos(players[username].playerX)+"x, "+toTilePos(players[username].playerY)+"y",canvas.width-10,90,2);
+			fillTextShadow(context,"online "+(Object.keys(players).length-1)+"   ping "+ping+"ms",canvas.width-10,120,2);
 			
 			
 			context.textAlign = "start";
@@ -1196,10 +1226,7 @@
 				context.fillRect(canvas.width/2-25-212,canvas.height/3-75,400,110);
 				context.globalAlpha = 1;
 				context.font = 75+'px font';
-				context.fillStyle = "black";
-				context.fillText("Joining game"+dotdotdot,canvas.width/2+3-212,canvas.height/3+3)
-				context.fillStyle = "white";
-				context.fillText("Joining game"+dotdotdot,canvas.width/2-212,canvas.height/3);
+				fillTextShadow(context,"Joining game"+dotdotdot,canvas.width/2-212,canvas.height/3,3);
 				
 				if (globalTimer % 10 == 0) {
 					dotdotdot += ".";
@@ -1216,6 +1243,8 @@
 		}
 		
 		updateNoiseMap();
+		updateMinimap();
+		
 		if (map) {
 			context.fillStyle = "#000";
 			context.globalAlpha = 0.5;
@@ -1401,16 +1430,16 @@
 				}
 			}
 			
-			if (e.keyCode == 77) {
-				map = !map;
-			}
+			//if (e.keyCode == 77) {
+			//	map = !map;
+			//}
 			
-			if (map) {
-				noiseCanvas.style.display = "";
-				viewNoise();
-			} else {
-				noiseCanvas.style.display = "none";
-			}
+			//if (map) {
+			//	noiseCanvas.style.display = "";
+			//	viewNoise();
+			//} else {
+			//	noiseCanvas.style.display = "none";
+			//}
 			
 			keysPressed[e.keyCode] = true;
 		},
