@@ -29,6 +29,9 @@
 <audio id="meadow" preload="all">
    <source src="/client/meadow.mp3">
 </audio>
+<audio id="duet" preload="all">
+   <source src="/client/duet.mp3">
+</audio>
 <audio id="birdsong" preload="all" loop>
    <source src="/client/birdsong.mp3">
 </audio>
@@ -1256,9 +1259,15 @@
 	
 	
 	function startMusic() {
-		meadow = document.getElementById('meadow');
-		meadow.volume = 0.1;
-		meadow.play();
+		if (randInt(2)) {
+			duet = document.getElementById('duet');
+			duet.volume = 0.1;
+			duet.play();
+		} else {
+			meadow = document.getElementById('meadow');
+			meadow.volume = 0.1;
+			meadow.play();
+		}
 		birdsong = document.getElementById('birdsong');
 		birdsong.volume = 0.25;
 		birdsong.play();
